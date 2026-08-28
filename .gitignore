@@ -1,0 +1,6 @@
+# Build / download artifacts (never committed)
+dist/
+input/
+patch/
+*.zip
+wavelink-win10-complete.zip
