@@ -3,8 +3,8 @@ name: Auto-build & release complete package
 # Triggers:
 #   - schedule (daily 06:00 UTC): auto-detect the latest Wave Link Windows release on the
 #     official Elgato release notes, download the MSIX from the Elgato CDN, build the
-#     patched installer from the companion patch repo, assemble a complete package, and
-#     publish a release.
+#     patched installer from the committed patch/ source in this repo, assemble a complete
+#     package, and publish a release.
 #   - workflow_dispatch: same as schedule, but always builds the latest (for validation)
 on:
   schedule:
@@ -21,12 +21,6 @@ jobs:
     steps:
       - name: Checkout this repo (release automation)
         uses: actions/checkout@v4
-
-      - name: Checkout patch repo (wavelink-win10-driver)
-        uses: actions/checkout@v4
-        with:
-          repository: DRDRDRRDDRDR/wavelink-win10-driver
-          path: patch
 
       - name: Setup .NET 8 SDK
         uses: actions/setup-dotnet@v4
@@ -83,8 +77,8 @@ jobs:
             Automated build triggered by the official Elgato Wave Link release notes.
 
             Bundle contents:
-            - Self-contained patched GUI installer exe (no .NET runtime needed; built from the companion patch repo)
-            - Official Wave Link driver (from the patch repo)
+            - Self-contained patched GUI installer exe (no .NET runtime needed; built from the committed patch/ source in this repo)
+            - Official Wave Link driver (from the committed patch/ source)
             - Wave Link ${{ steps.detect.outputs.app_version }} MSIX (downloaded from the Elgato CDN at build time)
             - Helper scripts
 

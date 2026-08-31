@@ -1,6 +1,7 @@
 # Build / download artifacts (never committed)
+# NOTE: patch/ IS committed — it holds the working patched installer source
+# (src/ driver/scripts) so the workflow builds self-contained from this repo.
 dist/
 input/
-patch/
 *.zip
 wavelink-win10-complete.zip

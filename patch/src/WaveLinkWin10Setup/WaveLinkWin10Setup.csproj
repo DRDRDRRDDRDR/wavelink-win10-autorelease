@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>WaveLinkWin10Setup</AssemblyName>
+    <RootNamespace>WaveLinkWin10Setup</RootNamespace>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <ApplicationManifest>App.manifest</ApplicationManifest>
+    <RootNamespace>WaveLinkWin10Setup</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\patch_manifest.ps1" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- After publishing, bundle the runtime assets (driver MSI + helper scripts) next to the
+       single-file exe so the published output is self-contained and self-locating: RepoRoot
+       (the exe's own directory) then already contains driver/ and scripts/. -->
+  <Target Name="BundleAssetsAfterPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <_AssetDriver Include="$(MSBuildThisFileDirectory)..\..\driver\**\*" />
+      <_AssetScripts Include="$(MSBuildThisFileDirectory)..\..\scripts\**\*" />
+    </ItemGroup>
+    <MakeDir Directories="$(PublishDir)\input" />
+    <Copy SourceFiles="@(_AssetDriver)"
+          DestinationFolder="$(PublishDir)\driver\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_AssetDriver)' != ''" />
+    <Copy SourceFiles="@(_AssetScripts)"
+          DestinationFolder="$(PublishDir)\scripts\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_AssetScripts)' != ''" />
+  </Target>
+
+</Project>
