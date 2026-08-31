@@ -34,101 +34,14 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Detect latest Wave Link & download MSIX
-        id: check
+        id: detect
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $stateFile = "wavelink-app-version.txt"
-          $current = if (Test-Path $stateFile) { (Get-Content $stateFile -Raw).Trim() } else { "" }
-          $event = "${{ github.event_name }}"
-          $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-
-          function Fetch-Raw {
-            param([string]$Url)
-            Write-Host "Fetching: $Url"
-            $tmp = New-TemporaryFile
-            try {
-              $status = (curl.exe --compressed -sL -A $ua `
-                -H "Accept: application/json, text/html, */*" `
-                -H "Accept-Language: en-US,en;q=0.9" `
-                -o $tmp.FullName -w "%{http_code}" $Url).Trim()
-              $raw = Get-Content -Raw $tmp.FullName
-              Write-Host "  -> HTTP $status | $($raw.Length) bytes"
-              if ($status -ne "200") {
-                Write-Host "  -> head: $($raw.Substring(0,[Math]::Min(200,$raw.Length)))"
-                return $null
-              }
-              return $raw
-            } finally { Remove-Item $tmp.FullName -Force -ErrorAction SilentlyContinue }
-          }
-
-          function Fetch-Json($Url) {
-            $raw = Fetch-Raw $Url
-            if ($null -eq $raw) { return $null }
-            try { return ($raw | ConvertFrom-Json) }
-            catch {
-              Write-Host "  -> JSON parse failed; head: $($raw.Substring(0,[Math]::Min(200,$raw.Length)))"
-              return $null
-            }
-          }
-
-          # The Elgato help center sits behind Akamai, which serves a JS-challenge page
-          # to non-browser clients. The Zendesk REST API usually slips past that, and the
-          # raw zendesk.com host is often not behind the same front. Try both.
-          $sectionJson = $null
-          foreach ($apiHost in @("elgato.zendesk.com", "help.elgato.com")) {
-            $j = Fetch-Json "https://$apiHost/api/v2/help_center/en-us/sections/4913442828941/articles.json"
-            if ($j -and $j.articles) { $sectionJson = $j; break }
-          }
-          if (-not $sectionJson) { throw "Could not retrieve the release-notes article list from any API host." }
-
-          $best = $null; $bestVer = [version]'0.0.0'
-          foreach ($a in $sectionJson.articles) {
-            if ($a.title -notmatch 'Windows') { continue }
-            if ($a.title -match '(\d+\.\d+(?:\.\d+)?)') {
-              try {
-                $v = [version]$Matches[1]
-                if ($v -gt $bestVer) { $bestVer = $v; $best = $a }
-              } catch {}
-            }
-          }
-          if (-not $best) { throw "No Windows release-notes article found in the API response." }
-          $latest = $bestVer.ToString()
-          $articleId = $best.id
-          Write-Host "Latest Wave Link (Windows): $latest (article id $articleId)"
-
-          $artJson = Fetch-Json "https://help.elgato.com/api/v2/help_center/en-us/articles/$articleId.json"
-          if (-not $artJson) { throw "Could not retrieve article $articleId JSON." }
-          $bodyHtml = $artJson.article.body
-          $ms = [regex]::Match($bodyHtml, 'https://edge\.elgato\.com/egc/windows/ewlw/[\d.]+/Stable/Elgato\.WaveLink_[\d.]+_x64\.msix')
-          if (-not $ms.Success) { throw "No x64 MSIX URL found in the release-notes article body." }
-          $msixUrl = $ms.Value
-          Write-Host "MSIX: $msixUrl"
-
-          $should = if ($event -eq "schedule") { ($latest -ne $current) } else { $true }
-          if (-not $should) {
-            Write-Host "No update (current=$current, latest=$latest). Skipping release."
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "should_release=false"
-            exit 0
-          }
-
-          New-Item -ItemType Directory -Force -Path input | Out-Null
-          $dest = "input/" + [System.IO.Path]::GetFileName($msixUrl)
-          curl.exe --compressed -sL -A $ua -o $dest $msixUrl
-          if (-not (Test-Path $dest)) { throw "MSIX download failed (file not created)." }
-          $bytes = [System.IO.File]::ReadAllBytes($dest)
-          if ($bytes.Length -lt 100KB -or $bytes[0] -ne 0x50 -or $bytes[1] -ne 0x4B) {
-            throw ("Downloaded file is not a valid MSIX (size=" + $bytes.Length + ", magic=" + $bytes[0] + "/" + $bytes[1] + ").")
-          }
-          Write-Host ("Downloaded -> " + $dest + " (" + [math]::Round($bytes.Length/1MB,2) + " MB)")
-
-          Set-Content -Path $stateFile -Value $latest -NoNewline
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "should_release=true"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "release_tag=wavelink-$latest"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "app_version=$latest"
+          $force = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '-Force' } else { '' }
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/detect-wavelink-msix.ps1 -OutputDir input -VersionFile wavelink-app-version.txt $force
 
       - name: Commit seen app version
-        if: steps.check.outputs.should_release == 'true' && github.event_name != 'push'
+        if: steps.detect.outputs.should_release == 'true' && github.event_name != 'push'
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
@@ -136,18 +49,18 @@ jobs:
           git add wavelink-app-version.txt
           $diff = git status --porcelain wavelink-app-version.txt
           if ($diff) {
-            git commit -m "chore: track Wave Link app version ${{ steps.check.outputs.app_version }}"
+            git commit -m "chore: track Wave Link app version ${{ steps.detect.outputs.app_version }}"
             git push
           } else {
             Write-Host "State unchanged; nothing to commit."
           }
 
       - name: Publish patched GUI installer (self-contained, single-file, win-x64)
-        if: steps.check.outputs.should_release == 'true'
+        if: steps.detect.outputs.should_release == 'true'
         run: dotnet publish patch/src/WaveLinkWin10Setup/WaveLinkWin10Setup.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -o dist
 
       - name: Assemble complete package
-        if: steps.check.outputs.should_release == 'true'
+        if: steps.detect.outputs.should_release == 'true'
         shell: pwsh
         run: |
           Copy-Item patch/driver  dist -Recurse -Force
@@ -155,16 +68,16 @@ jobs:
           Copy-Item input        dist -Recurse -Force
 
       - name: Zip package
-        if: steps.check.outputs.should_release == 'true'
+        if: steps.detect.outputs.should_release == 'true'
         shell: pwsh
         run: Compress-Archive -Path dist\* -DestinationPath wavelink-win10-complete.zip
 
       - name: Create GitHub Release
-        if: steps.check.outputs.should_release == 'true'
+        if: steps.detect.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.check.outputs.release_tag }}
-          name: Wave Link ${{ steps.check.outputs.app_version }} (Win10 installer)
+          tag_name: ${{ steps.detect.outputs.release_tag }}
+          name: Wave Link ${{ steps.detect.outputs.app_version }} (Win10 installer)
           files: wavelink-win10-complete.zip
           body: |
             Automated build triggered by the official Elgato Wave Link release notes.
@@ -172,7 +85,7 @@ jobs:
             Bundle contents:
             - Self-contained patched GUI installer exe (no .NET runtime needed; built from the companion patch repo)
             - Official Wave Link driver (from the patch repo)
-            - Wave Link ${{ steps.check.outputs.app_version }} MSIX (downloaded from the Elgato CDN at build time)
+            - Wave Link ${{ steps.detect.outputs.app_version }} MSIX (downloaded from the Elgato CDN at build time)
             - Helper scripts
 
             Note: the MSIX is Elgato proprietary software. It is fetched from the official CDN at build time and bundled into this release archive; it is not modified or re-hosted as a standalone file.

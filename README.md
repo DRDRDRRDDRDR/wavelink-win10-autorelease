@@ -8,10 +8,10 @@ This repository automatically detects the latest Windows version of Elgato Wave 
 
 ## 两个仓库的分工 / Two-repo split
 
-| 角色 Role | 仓库 Repo | 内容 Contents |
-| --- | --- | --- |
-| 补丁仓库 Patch repo | [`DRDRDRRDDRDR/wavelink-win10-driver`](https://github.com/DRDRDRRDDRDR/wavelink-win10-driver) | 打过补丁的安装器源码、官方驱动、脚本、说明文档（MinVersion 22000→19041、自签证书、驱动安装等） |
-| 自动发版仓库 Auto-release repo (本仓库) | [`DRDRDRRDDRDR/wavelink-win10-autorelease`](https://github.com/DRDRDRRDDRDR/wavelink-win10-autorelease) | 自动检测 + 构建 + 打包 + 发版的工作流与说明 |
+| 角色 Role                        | 仓库 Repo                                                                                                 | 内容 Contents                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 补丁仓库 Patch repo                | [`DRDRDRRDDRDR/wavelink-win10-driver`](https://github.com/DRDRDRRDDRDR/wavelink-win10-driver)           | 打过补丁的安装器源码、官方驱动、脚本、说明文档（MinVersion 22000→19041、自签证书、驱动安装等） |
+| 自动发版仓库 Auto-release repo (本仓库) | [`DRDRDRRDDRDR/wavelink-win10-autorelease`](https://github.com/DRDRDRRDDRDR/wavelink-win10-autorelease) | 自动检测 + 构建 + 打包 + 发版的工作流与说明                                 |
 
 - **补丁仓库**：存放源码与补丁本身，不负责自动发版。
 - **本仓库（自动发版）**：负责自动检测、构建、打包、发布。
@@ -20,8 +20,8 @@ This repository automatically detects the latest Windows version of Elgato Wave 
 
 1. 每日 **06:00 UTC**（或手动 `workflow_dispatch`）触发。
 2. 通过 **Zendesk REST API** 读取 Wave Link Release Notes 文章列表，取最高的 Windows 版本号。
-3. 读取该文章正文，用正则抽取官方 CDN 上的 x64 MSIX 直链
-   `https://edge.elgato.com/egc/windows/ewlw/{ver}/Stable/Elgato.WaveLink_{ver}.{build}_x64.msix`，
+3. 读取该文章正文，用正则抽取官方 CDN 上的 x64 MSIX 直链  
+   `https://edge.elgato.com/egc/windows/ewlw/{ver}/Stable/Elgato.WaveLink_{ver}.{build}_x64.msix`，  
    下载并做完整性校验（ZIP 魔数）。
 4. 克隆补丁仓库，`dotnet publish` 构建出自包含（无需 .NET 运行时）的安装器 exe。
 5. 将「安装器 + 驱动 + 脚本 + MSIX」拼成完整包，压缩后发布到 Release（标签 `wavelink-{版本}`）。
@@ -73,9 +73,23 @@ This repository automatically detects the latest Windows version of Elgato Wave 
 
 ## 本地验证 / Local validation
 
+本仓库自带一份**可本地直接运行的检测示例** `scripts/detect-wavelink-msix.ps1`（基于已验证的 `elgato.zendesk.com` Zendesk API，绕过 Akamai 挑战页），CI 与本地复用同一份逻辑：
+
+```powershell
+# 抓取最新 Windows 版并下载官方 MSIX 到 input/（stdout 打印 JSON，CI 下还会写 GITHUB_OUTPUT）
+pwsh -ExecutionPolicy Bypass -File scripts/detect-wavelink-msix.ps1 -OutputDir input -VersionFile wavelink-app-version.txt
+```
+
+完整本地复现发版产物（无需 GitHub Actions）：
+
 ```bash
-# 克隆本仓库与补丁仓库到同级目录后：
+# 1) 检测 + 下载 MSIX（强制重新下载用 -Force）
+pwsh -ExecutionPolicy Bypass -File scripts/detect-wavelink-msix.ps1 -OutputDir input -VersionFile wavelink-app-version.txt -Force
+# 2) 从补丁仓库构建自包含安装器（现已是修复版源码，含 pnputil 驱动安装兜底）
 dotnet publish ../wavelink-win10-driver/src/WaveLinkWin10Setup/WaveLinkWin10Setup.csproj \
   -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist
-# 再把 driver/ scripts/ 与从官网下载的 MSIX 拷贝进 dist，压缩即可
+# 3) 拼装 driver/ scripts/ input/ 并压缩
+xcopy /E /Y ../wavelink-win10-driver/driver dist\driver\
+xcopy /E /Y ../wavelink-win10-driver/scripts dist\scripts\
+Compress-Archive -Path dist\* -DestinationPath wavelink-win10-complete.zip
 ```
