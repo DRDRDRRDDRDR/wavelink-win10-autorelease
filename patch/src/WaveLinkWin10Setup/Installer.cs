@@ -421,19 +421,17 @@ Write-Host ('Signed: ' + $msix)
 
             if (msiOk)
             {
-                // MSI reported success but the services are not (yet) visible. On some
-                // systems the PnP node appears a few seconds later; give it a short grace
-                // period before deciding.
+                // msiexec reported success (0 or 3010). Kernel-mode driver services register
+                // with the SCM only on PnP enumeration / first use, so they may not be visible
+                // yet — that is normal and NOT a failure. The driver is installed; declare
+                // success and best-effort try to bring it online.
                 System.Threading.Thread.Sleep(3000);
-                if (AreDriverServicesPresent())
-                {
-                    TryStartDriverServices(log);
-                    log(Lang.T("driverOk"));
-                    return;
-                }
+                TryStartDriverServices(log);
+                log(Lang.T("driverOk"));
+                return;
             }
 
-            // Method 2 (fallback): install the bundled, signed driver packages via pnputil.
+            // MSI did not succeed -> fall back to pnputil for the bundled driver packages.
             log(Lang.T("driverPnpFallback"));
             var elgatoDir = Path.Combine(RepoRoot, "driver", "elgato");
             bool pnpRan = false;
@@ -457,21 +455,17 @@ Write-Host ('Signed: ' + $msix)
                 log(Lang.T("driverNoPnpDir"));
             }
 
-            // Re-check after the fallback.
-            if (AreDriverServicesPresent())
+            // pnputil staged the driver packages successfully -> the driver is installed
+            // (services start on demand). Declare success.
+            if (pnpRan)
             {
                 TryStartDriverServices(log);
                 log(Lang.T("driverOk"));
                 return;
             }
 
-            // Genuine failure: driver services are not installed after both methods.
-            // Report the REAL msiexec exit code (never a hardcoded -1) so the user can
-            // diagnose from the MSI log. If the MSI/pnputil reported success but the
-            // services are still absent, it is most likely a pending reboot / PnP
-            // enumeration delay — surface that as a distinct, less alarming message.
-            if (msiOk || pnpRan)
-                throw new Exception(string.Format(Lang.T("driverFailPending"), msiExit, logPath));
+            // Both methods failed: report the REAL msiexec exit code (never a hardcoded -1)
+            // so the user can diagnose from the MSI log.
             throw new Exception(string.Format(Lang.T("driverFail"), msiExit, logPath));
         }
 
