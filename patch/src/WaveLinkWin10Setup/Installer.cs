@@ -489,23 +489,64 @@ Write-Host ('Signed: ' + $msix)
             return outp;
         }
 
+        /// <summary>
+        /// Reliable, non-lagging proof that the Elgato audio kernel driver is actually
+        /// installed: its INF packages are staged in the Windows driver store
+        /// (DriverStore\FileRepository) by pnputil /add-driver /install. Unlike SCM service
+        /// registration — which only happens on PnP enumeration / first use and therefore
+        /// lags behind the install — driver-store staging is written synchronously, so it
+        /// is the correct "is the driver installed?" check.
+        /// </summary>
+        static bool AreDriverPackagesStaged(Action<string> log)
+        {
+            try
+            {
+                var outp = RunProcessCapture("pnputil.exe", "/enum-drivers");
+                var lower = outp.ToLowerInvariant();
+                return lower.Contains("elgatousbaudio.inf")
+                    && lower.Contains("elgatousbaudioks.inf")
+                    && lower.Contains("elgatovirtusbaudioemu.inf");
+            }
+            catch (Exception ex)
+            {
+                log("  (note) driver-store check skipped: " + ex.Message);
+                return false;
+            }
+        }
+
         static void Verify(Action<string> log, Action<int>? progress = null)
         {
             log(Lang.T("verifyHeader"));
             progress?.Invoke(90);
-            // "Present" (installed) is the success criterion; kernel drivers start on demand.
-            bool ok = true;
+
+            // Kernel-mode driver services register with the SCM only on PnP enumeration /
+            // first use, so they may not be visible immediately after install. Their
+            // absence here is BENIGN (they start on demand) — never a failure.
             foreach (var name in DriverServices)
             {
                 var svc = ServiceController.GetServices().FirstOrDefault(x => x.ServiceName == name);
-                var st = svc?.Status.ToString() ?? "MISSING";
-                log($"  {name} : {st}");
-                if (svc == null) ok = false; // only MISSING counts as a real problem
+                if (svc == null)
+                    log($"  {name} : not registered yet (starts on demand)");
+                else
+                    log($"  {name} : {svc.Status}");
             }
+
+            // The real, non-lagging proof of install: the INF packages are staged in the
+            // driver store. Appx presence proves the application side.
+            bool staged = AreDriverPackagesStaged(log);
+            log(Lang.T("verifyDriverStore") + (staged ? Lang.T("verifyYes") : Lang.T("verifyNo")));
+
             var appx = RunProcessCapture("powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command \"Get-AppxPackage -Name Elgato.WaveLink | Select-Object -ExpandProperty Version\"");
-            log(Lang.T("verifyAppx") + (string.IsNullOrWhiteSpace(appx) ? "MISSING" : appx.Trim()));
-            if (!ok) log(Lang.T("verifyWarn"));
+            bool appxOk = !string.IsNullOrWhiteSpace(appx);
+            log(Lang.T("verifyAppx") + (appxOk ? appx.Trim() : "MISSING"));
+
+            if (staged && appxOk)
+                log(Lang.T("verifyOk"));
+            else if (!appxOk)
+                log(Lang.T("verifyAppxFail"));
+            else
+                log(Lang.T("verifyDriverStoreWarn"));
         }
 
         static void RunProcess(string exe, string args, Action<string> log, int timeoutMs = 1200000)
