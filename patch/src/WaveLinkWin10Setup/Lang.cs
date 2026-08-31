@@ -113,7 +113,7 @@ namespace WaveLinkWin10Setup
             Zh["cannotStartMsiexec"] = "无法启动 msiexec。";
             Zh["driverFail"] = "驱动 MSI 失败，退出码 {0}。详见 {1}";
             Zh["driverFailPending"] = "驱动已安装，但服务尚未就绪（可能需重启或等待 PnP 枚举）。MSI 退出码 {0}，详见 {1}";
-            Zh["driverOk"] = "驱动安装成功（服务已注册，将按需启动）。";
+            Zh["driverOk"] = "驱动安装成功（将按需启动）。";
             Zh["driverAlready"] = "驱动服务已在运行，跳过安装。";
             Zh["driverMsiExit"] = "驱动 MSI 退出码: {0}";
             Zh["driverMsiError"] = "驱动 MSI 执行出错: ";
@@ -209,7 +209,7 @@ namespace WaveLinkWin10Setup
             En["cannotStartMsiexec"] = "Cannot start msiexec.";
             En["driverFail"] = "Driver MSI failed, exit code {0}. See {1}";
             En["driverFailPending"] = "Driver installed but services not yet ready (a reboot or PnP enumeration may be pending). MSI exit code {0}. See {1}";
-            En["driverOk"] = "Driver installed successfully (service registered; starts on demand).";
+            En["driverOk"] = "Driver installed successfully (starts on demand).";
             En["driverAlready"] = "Driver services already running; skipping install.";
             En["driverMsiExit"] = "Driver MSI exit code: {0}";
             En["driverMsiError"] = "Driver MSI execution error: ";
