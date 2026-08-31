@@ -73,7 +73,7 @@ namespace WaveLinkWin10Setup
             Zh["btnVerify"] = "验证";
             Zh["btnCheck"] = "环境检查 (干跑)";
             Zh["tipLog"] = "提示：安装类操作需管理员权限，点击后会自动请求提权（UAC）。";
-            Zh["stepLog"] = "步骤：① 浏览/放入官方 MSIX 到 input/ → ② 点「一键运行全部」→ ③ 验证服务 Running。";
+            Zh["stepLog"] = "步骤：① 浏览/放入官方 MSIX 到 input/ → ② 点「一键运行全部」→ ③ 验证驱动已安装。";
             Zh["dlgTitle"] = "选择官方 Wave Link MSIX";
             Zh["dlgFilter"] = "MSIX 包 (*.msix)|*.msix|所有文件 (*.*)|*.*";
             Zh["elevateFail"] = "提权失败（已取消或出错）: ";
@@ -98,7 +98,7 @@ namespace WaveLinkWin10Setup
             Zh["driverMissingFetch"] = "驱动 MSI 缺失，尝试 fetch_driver.bat 下载 ...";
             Zh["driverMissing"] = "驱动 MSI 缺失: ";
             Zh["installDriverMsi"] = "安装驱动 MSI（原生宿主 /qn） ...";
-            Zh["done"] = "=== 完成。Wave Link 3.x 驱动已在 Windows 10 安装并运行。===";
+            Zh["done"] = "=== 完成。Wave Link 3.x 驱动已安装在 Windows 10（服务将按需启动）。===";
             Zh["envHeader"] = "=== 环境检查 ===";
             Zh["envBuildOk"] = "满足 >= 1809";
             Zh["envBuildBad"] = "不满足，需 1809+";
@@ -112,7 +112,8 @@ namespace WaveLinkWin10Setup
             Zh["appInstalled"] = "应用已安装: ";
             Zh["cannotStartMsiexec"] = "无法启动 msiexec。";
             Zh["driverFail"] = "驱动 MSI 失败，退出码 {0}。详见 {1}";
-            Zh["driverOk"] = "驱动 MSI 安装成功 (exit 0)。";
+            Zh["driverFailPending"] = "驱动已安装，但服务尚未就绪（可能需重启或等待 PnP 枚举）。MSI 退出码 {0}，详见 {1}";
+            Zh["driverOk"] = "驱动安装成功（服务已注册，将按需启动）。";
             Zh["driverAlready"] = "驱动服务已在运行，跳过安装。";
             Zh["driverMsiExit"] = "驱动 MSI 退出码: {0}";
             Zh["driverMsiError"] = "驱动 MSI 执行出错: ";
@@ -120,7 +121,7 @@ namespace WaveLinkWin10Setup
             Zh["driverNoPnpDir"] = "未找到内置驱动目录 driver/elgato，无法回退。";
             Zh["verifyHeader"] = "验证服务 ...";
             Zh["verifyAppx"] = "  Appx Elgato.WaveLink : ";
-            Zh["verifyWarn"] = "警告：部分服务未运行，请检查上方输出与日志。";
+            Zh["verifyWarn"] = "警告：部分驱动服务未运行（属正常，将按需启动），请确认服务已安装。";
             Zh["cannotStart"] = "无法启动: ";
             Zh["exitCode"] = "{0} 退出码 {1}";
             Zh["lblProgress"] = "进度";
@@ -168,7 +169,7 @@ namespace WaveLinkWin10Setup
             En["btnVerify"] = "Verify";
             En["btnCheck"] = "Env Check (dry-run)";
             En["tipLog"] = "Note: install actions need admin rights; clicking will trigger a UAC elevation prompt.";
-            En["stepLog"] = "Steps: (1) Browse / put the official MSIX into input/ -> (2) Click \"Run All\" -> (3) Verify services are Running.";
+            En["stepLog"] = "Steps: (1) Browse / put the official MSIX into input/ -> (2) Click \"Run All\" -> (3) Verify the driver is installed.";
             En["dlgTitle"] = "Select official Wave Link MSIX";
             En["dlgFilter"] = "MSIX package (*.msix)|*.msix|All files (*.*)|*.*";
             En["elevateFail"] = "Elevation failed (cancelled or error): ";
@@ -193,7 +194,7 @@ namespace WaveLinkWin10Setup
             En["driverMissingFetch"] = "Driver MSI missing, trying fetch_driver.bat ...";
             En["driverMissing"] = "Driver MSI missing: ";
             En["installDriverMsi"] = "Installing driver MSI (native host /qn) ...";
-            En["done"] = "=== Done. Wave Link 3.x driver is installed and running on Windows 10. ===";
+            En["done"] = "=== Done. Wave Link 3.x driver is installed on Windows 10 (services start on demand). ===";
             En["envHeader"] = "=== Environment Check ===";
             En["envBuildOk"] = "OK (>= 1809)";
             En["envBuildBad"] = "not met, need 1809+";
@@ -207,7 +208,8 @@ namespace WaveLinkWin10Setup
             En["appInstalled"] = "App installed: ";
             En["cannotStartMsiexec"] = "Cannot start msiexec.";
             En["driverFail"] = "Driver MSI failed, exit code {0}. See {1}";
-            En["driverOk"] = "Driver MSI installed (exit 0).";
+            En["driverFailPending"] = "Driver installed but services not yet ready (a reboot or PnP enumeration may be pending). MSI exit code {0}. See {1}";
+            En["driverOk"] = "Driver installed successfully (service registered; starts on demand).";
             En["driverAlready"] = "Driver services already running; skipping install.";
             En["driverMsiExit"] = "Driver MSI exit code: {0}";
             En["driverMsiError"] = "Driver MSI execution error: ";
@@ -215,7 +217,7 @@ namespace WaveLinkWin10Setup
             En["driverNoPnpDir"] = "Bundled driver directory driver/elgato not found; cannot fall back.";
             En["verifyHeader"] = "Verifying services ...";
             En["verifyAppx"] = "  Appx Elgato.WaveLink : ";
-            En["verifyWarn"] = "Warning: some services are not running; check the output and logs above.";
+            En["verifyWarn"] = "Warning: some driver services are not running (normal — they start on demand). Confirm the services are installed.";
             En["cannotStart"] = "Cannot start: ";
             En["exitCode"] = "{0} exit code {1}";
             En["lblProgress"] = "Progress";
