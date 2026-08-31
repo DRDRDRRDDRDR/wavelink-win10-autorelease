@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Override release tag. Set a NEW tag to publish a separate release instead of updating an existing one (e.g. wavelink-3.2.10-fixed).'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -70,7 +75,7 @@ jobs:
         if: steps.detect.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.detect.outputs.release_tag }}
+          tag_name: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || steps.detect.outputs.release_tag }}
           name: Wave Link ${{ steps.detect.outputs.app_version }} (Win10 installer)
           files: wavelink-win10-complete.zip
           body: |
