@@ -308,7 +308,12 @@ Write-Host ('Signed: ' + $msix)
         }
 
         static readonly string[] DriverServices = { "ElgatoVirtUsbAudioEmu", "ElgatoUsbAudio", "ElgatoUsbAudioks" };
+        // Helper/companion services that may need an explicit start after install.
+        // WavelinkSEService is the Elgato "standalone enabler" that the MSI sometimes
+        // fails to start during install; starting it manually brings the whole stack online.
+        static readonly string[] HelperServices = { "WavelinkSEService" };
 
+        /// <summary>All driver/helper services are currently Running.</summary>
         static bool AreDriverServicesRunning()
         {
             foreach (var name in DriverServices)
@@ -317,6 +322,49 @@ Write-Host ('Signed: ' + $msix)
                 if (svc == null || svc.Status != ServiceControllerStatus.Running) return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// All driver services are INSTALLED (present in the SCM), regardless of whether
+        /// they are currently Running. Kernel-mode driver services are registered by the
+        /// MSI but only start on demand (when the Wave Link app or device connects), so
+        /// "present" — not "Running" — is the correct success criterion for the install.
+        /// </summary>
+        static bool AreDriverServicesPresent()
+        {
+            foreach (var name in DriverServices)
+            {
+                var svc = ServiceController.GetServices().FirstOrDefault(x => x.ServiceName == name);
+                if (svc == null) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Best-effort: start any installed driver/helper services that are currently
+        /// Stopped. This is NOT a success criterion — it only makes the install visibly
+        /// complete (services show as Running) and never throws.
+        /// </summary>
+        static void TryStartDriverServices(Action<string> log)
+        {
+            var all = DriverServices.Concat(HelperServices);
+            foreach (var name in all)
+            {
+                try
+                {
+                    var svc = ServiceController.GetServices().FirstOrDefault(x => x.ServiceName == name);
+                    if (svc == null || svc.Status == ServiceControllerStatus.Running) continue;
+                    if (svc.Status != ServiceControllerStatus.Stopped) continue;
+                    log("  starting " + name + " ...");
+                    svc.Start();
+                    svc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
+                    log("  " + name + " : " + svc.Status);
+                }
+                catch (Exception ex)
+                {
+                    log("  (note) " + name + " not started automatically: " + ex.Message);
+                }
+            }
         }
 
         static void InstallDriver(string msi, Action<string> log)
@@ -328,10 +376,12 @@ Write-Host ('Signed: ' + $msix)
                 return;
             }
 
-            // Method 1: official MSI (Thesycon tlsetupfx installs the driver via its INFs).
+            int msiExit = -1; // -1 = msiexec did not run / result unknown
             var logDir = Path.Combine(RepoRoot, "driver");
             Directory.CreateDirectory(logDir);
             var logPath = Path.Combine(logDir, "msi_install_exe.log");
+
+            // Method 1: official MSI (Thesycon tlsetupfx installs the driver via its INFs).
             try
             {
                 var psi = new ProcessStartInfo("msiexec.exe", $"/i \"{msi}\" /qn /norestart /l*v \"{logPath}\"")
@@ -341,22 +391,52 @@ Write-Host ('Signed: ' + $msix)
                 };
                 using var p = Process.Start(psi) ?? throw new Exception(Lang.T("cannotStartMsiexec"));
                 p.WaitForExit();
-                log(string.Format(Lang.T("driverMsiExit"), p.ExitCode));
+                msiExit = p.ExitCode;
+                log(string.Format(Lang.T("driverMsiExit"), msiExit));
             }
             catch (Exception ex)
             {
                 log(Lang.T("driverMsiError") + ex.Message);
             }
 
-            if (AreDriverServicesRunning())
+            // SUCCESS CRITERION
+            // ----------------
+            // The driver install is successful when EITHER:
+            //   (a) msiexec exits 0 (or 3010 = success, reboot required), OR
+            //   (b) the driver services are now present in the SCM.
+            // Kernel-mode driver services are registered by the MSI but only start on
+            // demand (when the Wave Link app / device connects). Checking for "Running"
+            // was the wrong criterion and produced false "exit code -1" failures even
+            // though the MSI had actually succeeded.
+            bool msiOk = (msiExit == 0 || msiExit == 3010);
+            bool present = AreDriverServicesPresent();
+
+            if (present)
             {
+                // Driver is installed. Bring services online best-effort (does not affect success).
+                TryStartDriverServices(log);
                 log(Lang.T("driverOk"));
                 return;
+            }
+
+            if (msiOk)
+            {
+                // MSI reported success but the services are not (yet) visible. On some
+                // systems the PnP node appears a few seconds later; give it a short grace
+                // period before deciding.
+                System.Threading.Thread.Sleep(3000);
+                if (AreDriverServicesPresent())
+                {
+                    TryStartDriverServices(log);
+                    log(Lang.T("driverOk"));
+                    return;
+                }
             }
 
             // Method 2 (fallback): install the bundled, signed driver packages via pnputil.
             log(Lang.T("driverPnpFallback"));
             var elgatoDir = Path.Combine(RepoRoot, "driver", "elgato");
+            bool pnpRan = false;
             if (Directory.Exists(elgatoDir))
             {
                 foreach (var inf in Directory.GetFiles(elgatoDir, "*.inf", SearchOption.AllDirectories))
@@ -364,6 +444,7 @@ Write-Host ('Signed: ' + $msix)
                     try
                     {
                         log("  pnputil " + Path.GetFileName(inf) + ": " + RunPnp($"/add-driver \"{inf}\" /install"));
+                        pnpRan = true;
                     }
                     catch (Exception ex)
                     {
@@ -376,9 +457,22 @@ Write-Host ('Signed: ' + $msix)
                 log(Lang.T("driverNoPnpDir"));
             }
 
-            if (!AreDriverServicesRunning())
-                throw new Exception(string.Format(Lang.T("driverFail"), -1, logPath));
-            log(Lang.T("driverOk"));
+            // Re-check after the fallback.
+            if (AreDriverServicesPresent())
+            {
+                TryStartDriverServices(log);
+                log(Lang.T("driverOk"));
+                return;
+            }
+
+            // Genuine failure: driver services are not installed after both methods.
+            // Report the REAL msiexec exit code (never a hardcoded -1) so the user can
+            // diagnose from the MSI log. If the MSI/pnputil reported success but the
+            // services are still absent, it is most likely a pending reboot / PnP
+            // enumeration delay — surface that as a distinct, less alarming message.
+            if (msiOk || pnpRan)
+                throw new Exception(string.Format(Lang.T("driverFailPending"), msiExit, logPath));
+            throw new Exception(string.Format(Lang.T("driverFail"), msiExit, logPath));
         }
 
         static string RunPnp(string args)
@@ -405,13 +499,14 @@ Write-Host ('Signed: ' + $msix)
         {
             log(Lang.T("verifyHeader"));
             progress?.Invoke(90);
+            // "Present" (installed) is the success criterion; kernel drivers start on demand.
             bool ok = true;
-            foreach (var name in new[] { "ElgatoVirtUsbAudioEmu", "ElgatoUsbAudio", "ElgatoUsbAudioks" })
+            foreach (var name in DriverServices)
             {
                 var svc = ServiceController.GetServices().FirstOrDefault(x => x.ServiceName == name);
                 var st = svc?.Status.ToString() ?? "MISSING";
                 log($"  {name} : {st}");
-                if (svc == null || svc.Status != ServiceControllerStatus.Running) ok = false;
+                if (svc == null) ok = false; // only MISSING counts as a real problem
             }
             var appx = RunProcessCapture("powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command \"Get-AppxPackage -Name Elgato.WaveLink | Select-Object -ExpandProperty Version\"");
