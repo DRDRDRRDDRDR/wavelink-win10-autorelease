@@ -122,6 +122,12 @@ namespace WaveLinkWin10Setup
             Zh["verifyHeader"] = "验证服务 ...";
             Zh["verifyAppx"] = "  Appx Elgato.WaveLink : ";
             Zh["verifyWarn"] = "警告：部分驱动服务未运行（属正常，将按需启动），请确认服务已安装。";
+            Zh["verifyDriverStore"] = "  驱动库（已暂存驱动包）: ";
+            Zh["verifyYes"] = "已暂存";
+            Zh["verifyNo"] = "未暂存";
+            Zh["verifyOk"] = "验证通过：驱动包已暂存至驱动库，Wave Link 应用已安装。音频服务将按需启动。";
+            Zh["verifyAppxFail"] = "警告：Wave Link 应用（Appx）缺失 —— 应用安装可能失败。";
+            Zh["verifyDriverStoreWarn"] = "警告：驱动库未找到 Elgato 驱动包 —— 若音频不可用请重跑驱动安装。";
             Zh["cannotStart"] = "无法启动: ";
             Zh["exitCode"] = "{0} 退出码 {1}";
             Zh["lblProgress"] = "进度";
@@ -218,6 +224,12 @@ namespace WaveLinkWin10Setup
             En["verifyHeader"] = "Verifying services ...";
             En["verifyAppx"] = "  Appx Elgato.WaveLink : ";
             En["verifyWarn"] = "Warning: some driver services are not running (normal — they start on demand). Confirm the services are installed.";
+            En["verifyDriverStore"] = "  Driver store (staged packages): ";
+            En["verifyYes"] = "staged";
+            En["verifyNo"] = "NOT staged";
+            En["verifyOk"] = "Verification passed: driver packages are staged in the driver store and Wave Link is installed. Audio services start on demand.";
+            En["verifyAppxFail"] = "Warning: Wave Link app (Appx) is MISSING — the app install may have failed.";
+            En["verifyDriverStoreWarn"] = "Warning: Elgato driver packages were NOT found in the driver store — re-run the driver install if audio does not work.";
             En["cannotStart"] = "Cannot start: ";
             En["exitCode"] = "{0} exit code {1}";
             En["lblProgress"] = "Progress";
