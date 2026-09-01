@@ -262,25 +262,21 @@ namespace WaveLinkWin10Setup
             log(Lang.T("signTool") + st);
 
             var dir = Path.GetDirectoryName(patched);
-            var pfx = Path.Combine(dir, "WaveLinkPatch.pfx");
             var cer = Path.Combine(dir, "WaveLinkPatch.cer");
 
             var script = @"$ErrorActionPreference = 'Stop'
 $friendly = 'WaveLinkPatch'
-$pfx = '__PFX__'
 $cer = '__CER__'
 $msix = '__MSIX__'
 $st  = '__SIGNT__'
 
 $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -eq $friendly } | Select-Object -First 1
 if (-not $cert) {
-    $cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=WaveLinkPatch' -KeyUsage DigitalSignature -KeyAlgorithm RSA -HashAlgorithm SHA256 -CertStoreLocation 'Cert:\CurrentUser\My' -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3')
+    $cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=WaveLinkPatch' -KeyUsage DigitalSignature -KeyAlgorithm RSA -HashAlgorithm SHA256 -KeyExportPolicy Exportable -CertStoreLocation 'Cert:\CurrentUser\My' -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3')
     Write-Host ('Created self-signed cert: ' + $cert.Thumbprint)
 } else {
     Write-Host ('Reusing existing cert: ' + $cert.Thumbprint)
 }
-$pwd = ConvertTo-SecureString -String 'WaveLinkPatch' -Force -AsPlainText
-Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $pwd | Out-Null
 Export-Certificate -Cert $cert -FilePath $cer | Out-Null
 
 $thumb = $cert.Thumbprint
@@ -293,12 +289,11 @@ $thumb = $cert.Thumbprint
 if ($LASTEXITCODE -ne 0) { throw 'certutil -addstore Root failed' }
 Write-Host 'Cert trusted (LocalMachine\Root)'
 
-& $st sign /fd SHA256 /a /f $pfx /p WaveLinkPatch $msix
+& $st sign /fd SHA256 /sha1 $thumb $msix
 if ($LASTEXITCODE -ne 0) { throw 'signtool sign failed' }
 Write-Host ('Signed: ' + $msix)
 ";
-            script = script.Replace("__PFX__", pfx.Replace("'", "''"))
-                          .Replace("__CER__", cer.Replace("'", "''"))
+            script = script.Replace("__CER__", cer.Replace("'", "''"))
                           .Replace("__MSIX__", patched.Replace("'", "''"))
                           .Replace("__SIGNT__", st.Replace("'", "''"));
 
