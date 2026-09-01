@@ -41,6 +41,11 @@ param(
     [string]$SectionId   = "4913442828941"
 )
 
+# Guard against an empty host/section (e.g. a stray empty positional argument from the
+# calling workflow) so we never build a malformed "https:///..." URL that makes curl fail.
+if ([string]::IsNullOrWhiteSpace($ApiHost))   { $ApiHost   = "elgato.zendesk.com" }
+if ([string]::IsNullOrWhiteSpace($SectionId)) { $SectionId = "4913442828941" }
+
 $ErrorActionPreference = "Stop"
 $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 

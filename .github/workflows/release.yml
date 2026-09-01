@@ -36,8 +36,9 @@ jobs:
         id: detect
         shell: pwsh
         run: |
-          $force = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '-Force' } else { '' }
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/detect-wavelink-msix.ps1 -OutputDir input -VersionFile wavelink-app-version.txt $force
+          $forceArg = @()
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') { $forceArg = @('-Force') }
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/detect-wavelink-msix.ps1 -OutputDir input -VersionFile wavelink-app-version.txt @forceArg
 
       - name: Commit seen app version
         if: steps.detect.outputs.should_release == 'true' && github.event_name != 'push'
