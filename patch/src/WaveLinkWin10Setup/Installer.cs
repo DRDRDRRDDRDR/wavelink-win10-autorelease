@@ -249,6 +249,88 @@ namespace WaveLinkWin10Setup
             return null;
         }
 
+        // Windows SDK Build Tools version used to fetch a standalone, redistributable
+        // signtool toolchain when the user's machine has no Windows 10 SDK installed.
+        const string SdkBuildToolsVersion = "10.0.28000.2705";
+
+        /// <summary>
+        /// Resolve a usable signtool.exe. Preference order:
+        ///   1. Windows 10 SDK installed locally (Windows Kits) - no download.
+        ///   2. A previously downloaded copy in the local app-data cache.
+        ///   3. On-the-fly download of the redistributable Microsoft.Windows.SDK.BuildTools
+        ///      NuGet package, extracting the x64 signing toolchain into the cache.
+        /// Lets the patcher self-sign the patched MSIX on machines without the Windows 10
+        /// SDK, without bundling any SDK binaries in the release package.
+        /// </summary>
+        static string EnsureSigntool()
+        {
+            var local = FindSigntool();
+            if (local != null) return local;
+
+            var cacheDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "WaveLinkWin10Setup", "signtool");
+            var cached = Path.Combine(cacheDir, "signtool.exe");
+            if (File.Exists(cached)) return cached;
+
+            return DownloadSigntool(cacheDir, null);
+        }
+
+        static string DownloadSigntool(string cacheDir, Action<string> log)
+        {
+            if (log != null) log("正在自动获取 signtool（首次需联网下载 Windows SDK Build Tools，约 22MB，之后会缓存到本地）...");
+            var script = @"$ErrorActionPreference = 'Stop'
+$url = '__URL__'
+$cache = '__CACHE__'
+$signtool = Join-Path $cache 'signtool.exe'
+if (Test-Path $signtool) { Write-Output $signtool; exit 0 }
+New-Item -ItemType Directory -Force -Path $cache | Out-Null
+$tmp = Join-Path $env:TEMP ('wl_sdk_' + [guid]::NewGuid().ToString('N') + '.nupkg')
+Write-Host 'Downloading Windows SDK signtool ...'
+& curl.exe -sL -o $tmp $url
+if (-not (Test-Path $tmp)) { throw 'download failed' }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead($tmp)
+$x64 = $null
+foreach ($e in $zip.Entries) {
+    $parts = $e.FullName -split '/'
+    if ($parts.Count -ge 3 -and $parts[-1] -eq 'signtool.exe' -and $parts[-2] -eq 'x64') {
+        $x64 = $e.FullName.Substring(0, $e.FullName.Length - 'signtool.exe'.Length).TrimEnd('/')
+        break
+    }
+}
+if (-not $x64) { $zip.Dispose(); throw 'signtool.exe not found in downloaded package' }
+foreach ($e in $zip.Entries) {
+    $ep = $e.FullName -split '/'
+    if ($e.FullName.StartsWith($x64 + '/') -and $ep.Count -eq ($x64 -split '/').Count + 1 -and $ep[-1] -ne '') {
+        $dest = Join-Path $cache $e.Name
+        [System.IO.Compression.ZipFile]::ExtractToFile($e, $dest, $true)
+    }
+}
+$zip.Dispose()
+Remove-Item $tmp -Force
+if (-not (Test-Path $signtool)) { throw 'signtool.exe extraction failed' }
+Write-Output $signtool
+";
+            script = script.Replace("__URL__", "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/" + SdkBuildToolsVersion + "/microsoft.windows.sdk.buildtools." + SdkBuildToolsVersion + ".nupkg")
+                          .Replace("__CACHE__", cacheDir.Replace("'", "''"));
+
+            var tmp = Path.Combine(Path.GetTempPath(), "wl_getsigntool_" + Guid.NewGuid().ToString("N") + ".ps1");
+            File.WriteAllText(tmp, script, Encoding.UTF8);
+            try
+            {
+                var outp = RunProcessCapture("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{tmp}\"");
+                var path = outp.Trim();
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                    throw new Exception(Lang.T("noSigntool"));
+                return path;
+            }
+            finally
+            {
+                try { File.Delete(tmp); } catch { }
+            }
+        }
+
         /// <summary>
         /// Create (or reuse) a self-signed cert CN=WaveLinkPatch, trust it into
         /// LocalMachine\TrustedRoot, and sign the patched MSIX with signtool so that
@@ -257,7 +339,7 @@ namespace WaveLinkWin10Setup
         static void SignAppx(string patched, Action<string> log)
         {
             log(Lang.T("signing"));
-            var st = FindSigntool();
+            var st = EnsureSigntool();
             if (st == null) throw new Exception(Lang.T("noSigntool"));
             log(Lang.T("signTool") + st);
 
