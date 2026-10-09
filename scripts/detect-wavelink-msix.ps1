@@ -72,10 +72,14 @@ if (-not $sectionJson -or -not $sectionJson.articles) {
     throw "Could not retrieve the release-notes article list from $ApiHost."
 }
 
-# 2) Highest Windows version (title format: "Elgato Wave Link X.Y.Z (Windows) Release Notes").
+# 2) Highest Windows version (title format: "Elgato Wave Link X.Y[.Z] (Windows) Release Notes").
+# NOTE: the version group must accept one OR MORE components. Elgato publishes some releases
+# with a two-part version - "Elgato Wave Link 3.3 (Windows) Release Notes" - and requiring
+# three parts (the previous \d+\.\d+\.\d+) silently skipped those, which is why the automation
+# sat on 3.2.10 while 3.3 was already out.
 $best = $null; $bestVer = [version]'0.0.0'
 foreach ($a in $sectionJson.articles) {
-    if ($a.title -match 'Elgato Wave Link (\d+\.\d+\.\d+) \(Windows\) Release Notes') {
+    if ($a.title -match 'Elgato Wave Link (\d+(?:\.\d+)*) \(Windows\) Release Notes') {
         try {
             $v = [version]$Matches[1]
             if ($v -gt $bestVer) { $bestVer = $v; $best = $a }
