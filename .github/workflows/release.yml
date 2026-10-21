@@ -6,22 +6,42 @@ name: Auto-build & release complete package
 #     patched installer from the committed patch/ source in this repo, assemble a complete
 #     package, and publish a release.
 #   - workflow_dispatch: same as schedule, but always builds the latest (for validation)
+#
+# There are TWO channels:
+#   stable - discovered through the official Elgato release-notes articles on Zendesk. Tag format
+#            wavelink-<version>. This is the default and what the daily 06:00 UTC run builds.
+#   beta   - Elgato publishes NO release-notes article for beta builds, so the stable detector can
+#            never see them. Beta is discovered from the updater's own app-version-check endpoint
+#            instead, whose MSIX filename is the authoritative version. Tag format
+#            wavelink-beta-<version>, published as a GitHub prerelease. Runs on its own 12:00 UTC
+#            schedule, or on demand with channel=beta.
 on:
   schedule:
     - cron: '0 6 * * *'
+    - cron: '0 12 * * *'
   workflow_dispatch:
     inputs:
       release_tag:
         description: 'Override release tag. Set a NEW tag to publish a separate release instead of updating an existing one (e.g. wavelink-3.2.10-fixed).'
         required: false
         default: ''
+      channel:
+        description: 'Which channel to build. The 12:00 UTC schedule run always builds beta.'
+        required: false
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Build patched installer + bundle MSIX
+    name: Build patched installer + bundle MSIX (stable)
+    # Skip on the 12:00 UTC slot, which is reserved for the beta channel.
+    if: github.event.schedule != '0 12 * * *' && (github.event_name != 'workflow_dispatch' || github.event.inputs.channel != 'beta')
     runs-on: windows-latest
     steps:
       - name: Checkout this repo (release automation)
@@ -89,5 +109,95 @@ jobs:
             - Helper scripts
 
             Note: the MSIX is Elgato proprietary software. It is fetched from the official CDN at build time and bundled into this release archive; it is not modified or re-hosted as a standalone file.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-beta:
+    name: Build patched installer + bundle MSIX (beta)
+    # Runs on the 12:00 UTC slot, or on demand with channel=beta.
+    if: github.event.schedule == '0 12 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'beta')
+    runs-on: windows-latest
+    steps:
+      - name: Checkout this repo (release automation)
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Detect latest Wave Link beta & download MSIX
+        id: detect
+        shell: pwsh
+        run: |
+          $forceArg = @()
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') { $forceArg = @('-Force') }
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/detect-wavelink-msix-beta.ps1 -OutputDir input-beta -VersionFile wavelink-beta-version.txt @forceArg
+
+      - name: Commit seen beta version
+        if: steps.detect.outputs.should_release == 'true' && github.event_name != 'push'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add wavelink-beta-version.txt
+          $diff = git status --porcelain wavelink-beta-version.txt
+          if ($diff) {
+            git commit -m "chore(beta): track Wave Link beta version ${{ steps.detect.outputs.app_version }}"
+            git push
+          } else {
+            Write-Host "State unchanged; nothing to commit."
+          }
+
+      - name: Publish patched GUI installer (self-contained, single-file, win-x64)
+        if: steps.detect.outputs.should_release == 'true'
+        run: dotnet publish patch/src/WaveLinkWin10Setup/WaveLinkWin10Setup.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -o dist
+
+      # The installer looks for a *.msix under a folder named "input". Beta keeps its own
+      # input-beta folder so the two channels never share state, so normalise it to input
+      # here rather than teaching the installer a second folder name.
+      - name: Assemble complete package
+        if: steps.detect.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path input | Out-Null
+          Copy-Item input-beta/*.msix input -Force
+          Copy-Item patch/driver  dist -Recurse -Force
+          Copy-Item patch/scripts dist -Recurse -Force
+          Copy-Item input        dist -Recurse -Force
+
+      - name: Zip package
+        if: steps.detect.outputs.should_release == 'true'
+        shell: pwsh
+        run: Compress-Archive -Path dist\* -DestinationPath wavelink-win10-complete-beta.zip
+
+      - name: Create GitHub prerelease
+        if: steps.detect.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || steps.detect.outputs.release_tag }}
+          name: Wave Link ${{ steps.detect.outputs.app_version }} BETA (Win10 installer)
+          prerelease: true
+          files: wavelink-win10-complete-beta.zip
+          body: |
+            **Beta channel build.** Elgato publishes no release-notes article for beta builds, so this
+            release is discovered from the Wave Link updater's own beta endpoint rather than the
+            stable release-notes feed. Treat it as a preview.
+
+            Bundle contents:
+            - Self-contained patched GUI installer exe (no .NET runtime needed; built from the committed patch/ source in this repo)
+            - Official Wave Link driver (from the committed patch/ source)
+            - Wave Link ${{ steps.detect.outputs.app_version }} beta MSIX (downloaded from the Elgato CDN at build time)
+            - Helper scripts
+
+            Beta MSIX details:
+            - Version: `${{ steps.detect.outputs.app_version }}`
+            - SHA256: `${{ steps.detect.outputs.sha256 }}`
+            - Size: `${{ steps.detect.outputs.size_bytes }}` bytes
+            - Release notes: ${{ steps.detect.outputs.release_notes }}
+
+            Note: the MSIX is Elgato proprietary software. It is fetched from the official CDN at build
+            time and bundled into this release archive; it is not modified or re-hosted as a standalone
+            file. The Win10 compatibility patch is applied at install time by the bundled installer.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
