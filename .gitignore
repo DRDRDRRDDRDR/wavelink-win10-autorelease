@@ -5,3 +5,7 @@ dist/
 input/
 *.zip
 wavelink-win10-complete.zip
+
+# C# build output from dotnet build
+patch/src/**/bin/
+patch/src/**/obj/

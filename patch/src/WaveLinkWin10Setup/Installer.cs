@@ -125,6 +125,10 @@ namespace WaveLinkWin10Setup
                 P(15);
 
                 var patched = Path.Combine(RepoRoot, "input", "WaveLink_Win10_patched.msix");
+                // Resolve the packaging toolchain BEFORE patching. The previous order only
+                // fetched the SDK tools at signing time, so the patch step silently fell
+                // back to a plain zip repack and produced a package signtool could never sign.
+                EnsureMakeAppx(log);
                 log(string.Format(Lang.T("patchRepack"), minBuild));
                 PatchMsix(msixPath, patched, minBuild, log);
                 if (!File.Exists(patched)) throw new Exception(Lang.T("patchNoOut") + patched);
@@ -249,6 +253,27 @@ namespace WaveLinkWin10Setup
             return null;
         }
 
+        /// <summary>Locate makeappx.exe. Same search order as FindSigntool: PATH is not
+        /// touched by the SDK installer by default, so the Windows Kits tree is scanned
+        /// for the x64 copy. makeappx is mandatory - repacking an MSIX with a plain zip
+        /// library yields an invalid AppX container that signtool refuses to sign.</summary>
+        static string FindMakeAppx()
+        {
+            foreach (var root in new[]
+            {
+                @"C:\Program Files (x86)\Windows Kits\10\bin",
+                @"C:\Program Files\Windows Kits\10\bin"
+            })
+            {
+                if (!Directory.Exists(root)) continue;
+                var hits = Directory.GetFiles(root, "makeappx.exe", SearchOption.AllDirectories);
+                var x64 = hits.FirstOrDefault(h => h.Replace('\\', '/').Contains("/x64/"));
+                if (x64 != null) return x64;
+                if (hits.Length > 0) return hits[0];
+            }
+            return null;
+        }
+
         // Windows SDK Build Tools version used to fetch a standalone, redistributable
         // signtool toolchain when the user's machine has no Windows 10 SDK installed.
         const string SdkBuildToolsVersion = "10.0.28000.2705";
@@ -267,23 +292,53 @@ namespace WaveLinkWin10Setup
             var local = FindSigntool();
             if (local != null) return local;
 
-            var cacheDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "WaveLinkWin10Setup", "signtool");
+            var cacheDir = CacheDir;
             var cached = Path.Combine(cacheDir, "signtool.exe");
             if (File.Exists(cached)) return cached;
 
             return DownloadSigntool(cacheDir, null);
         }
 
+        /// <summary>
+        /// Resolve a usable makeappx.exe. makeappx is REQUIRED: it is the only tool that
+        /// produces a valid AppX/OPC container with AppxBlockMap.xml and [Content_Types].xml.
+        /// Repacking with System.IO.Compression yields a plain zip that signtool rejects
+        /// with "This file format cannot be signed because it is not recognized", which is
+        /// exactly the failure users without the Windows SDK used to hit.
+        /// Preference order mirrors EnsureSigntool, and both tools come from the same
+        /// BuildTools download so only one fetch is ever needed.
+        /// </summary>
+        static string EnsureMakeAppx(Action<string> log)
+        {
+            var local = FindMakeAppx();
+            if (local != null) return local;
+
+            var cacheDir = CacheDir;
+            var cached = Path.Combine(cacheDir, "makeappx.exe");
+            if (File.Exists(cached)) return cached;
+
+            DownloadSigntool(cacheDir, log);
+
+            if (File.Exists(cached)) return cached;
+            return null;
+        }
+
+        static string CacheDir => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WaveLinkWin10Setup", "signtool");
+
         static string DownloadSigntool(string cacheDir, Action<string> log)
         {
-            if (log != null) log("正在自动获取 signtool（首次需联网下载 Windows SDK Build Tools，约 22MB，之后会缓存到本地）...");
+            if (log != null) log("正在自动获取 Windows SDK Build Tools 工具链，首次需联网下载约 22MB，之后会缓存到本地...");
             var script = @"$ErrorActionPreference = 'Stop'
 $url = '__URL__'
 $cache = '__CACHE__'
 $signtool = Join-Path $cache 'signtool.exe'
-if (Test-Path $signtool) { Write-Output $signtool; exit 0 }
+$makeappx = Join-Path $cache 'makeappx.exe'
+# Both tools live in the same x64 folder of the nupkg, so only treat the cache as
+# complete when BOTH are present. A cache that holds signtool but not makeappx would
+# otherwise never be repaired, and makeappx is required for a valid repack.
+if ((Test-Path $signtool) -and (Test-Path $makeappx)) { Write-Output $signtool; exit 0 }
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
 $tmp = Join-Path $env:TEMP ('wl_sdk_' + [guid]::NewGuid().ToString('N') + '.nupkg')
 Write-Host 'Downloading Windows SDK signtool ...'
